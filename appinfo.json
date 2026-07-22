@@ -1,0 +1,20 @@
+{
+  "id": "com.tejalabs.iotdashboard",
+  "version": "1.0.0",
+  "vendor": "Tejalabs",
+  "type": "web",
+  "main": "index.html",
+  "title": "IOT Dashboard",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0b1220",
+  "iconColor": "#0b1220",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "requiredPermissions": [
+    "time.query",
+    "activity.operation"
+  ],
+  "resolution": "1920x1080",
+  "appDescription": "Full-screen IoT dashboards for Node-RED, Grafana, InfluxDB, Home Assistant and more on LG webOS TV. By Tejalabs."
+}

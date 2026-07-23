@@ -120,11 +120,14 @@
     if (!dir) return false;
 
     var active = document.activeElement;
-    // Let inputs handle left/right for caret movement when not at edge feels complex;
-    // for TV we generally still want spatial nav — skip only for textarea vertical not needed.
+    // Let inputs handle left/right for caret / slider value.
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
       if ((key === 'ArrowLeft' || key === 'ArrowRight') && active.tagName === 'INPUT') {
-        // allow native caret; only spatial-jump when at ends
+        // Range slider: always use native value change
+        if (active.type === 'range' || active.type === 'number') {
+          return false;
+        }
+        // Text-like inputs: allow native caret; only spatial-jump when at ends
         var start = active.selectionStart;
         var end = active.selectionEnd;
         var len = (active.value || '').length;

@@ -42,6 +42,7 @@
     dashCount: $('#dash-count'),
     cycleToggle: $('#cycle-toggle'),
     cycleSeconds: $('#cycle-seconds'),
+    cycleSecondsLabel: $('#cycle-seconds-label'),
     hintsToggle: $('#hints-toggle'),
     awakeToggle: $('#awake-toggle'),
     modal: $('#modal-dashboard'),
@@ -52,9 +53,27 @@
     inputUrl: $('#input-url'),
     typeGrid: $('#type-grid'),
     confirmModal: $('#modal-confirm'),
+    confirmTitle: $('#confirm-title'),
     confirmText: $('#confirm-text'),
-    toast: $('#toast'),
-    importInput: $('#import-file')
+    confirmYes: $('#btn-confirm-yes'),
+    transferModal: $('#modal-transfer'),
+    transferTitle: $('#transfer-title'),
+    transferDesc: $('#transfer-desc'),
+    transferLabel: $('#transfer-label'),
+    transferText: $('#transfer-text'),
+    transferError: $('#transfer-error'),
+    transferCopy: $('#btn-transfer-copy'),
+    transferApply: $('#btn-transfer-apply'),
+    toast: $('#toast')
+  };
+
+  // SVG icons (webOS often lacks emoji glyphs)
+  var ICONS = {
+    plus: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    star: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.7 5.5 6 .9-4.4 4.3 1 6.1L12 17.5 6.7 20.3l1-6.1L3.3 9.9l6-.9L12 3.5z" fill="currentColor"/></svg>',
+    play: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5-11-6.5z" fill="currentColor"/></svg>',
+    edit: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.1L16.6 5.5a1.5 1.5 0 0 0-2.1 0L4 16v4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    close: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
   };
 
   // ---------- Utils ----------
@@ -92,6 +111,7 @@
     closeOverlay(true);
     closeModal();
     closeConfirm();
+    closeTransferModal();
 
     if (name === 'configure') {
       stopCycle(true);
@@ -103,6 +123,8 @@
       applyKeepAwake();
       maybeStartCycle();
       showViewerHint();
+      // Keep remote keys on the app shell (not trapped in the iframe)
+      try { document.body.focus(); } catch (e) {}
     }
   }
 
@@ -284,33 +306,69 @@
   }
 
   function cycleNext() {
+    cycleBy(1);
+  }
+
+  function cycleBy(delta) {
     var list = S.getDashboards();
     if (list.length < 2) return;
     var idx = list.findIndex(function (d) { return d.id === state.currentId; });
-    var next = list[(idx + 1) % list.length];
+    if (idx < 0) idx = 0;
+    var next = list[(idx + delta + list.length) % list.length];
     openDashboard(next.id, { silent: false });
   }
 
   // ---------- Configure ----------
+  function formatCycleLabel(seconds) {
+    seconds = clampCycleSeconds(seconds);
+    if (seconds >= 60 && seconds % 60 === 0) {
+      var mins = seconds / 60;
+      return mins + (mins === 1 ? ' min' : ' min');
+    }
+    if (seconds >= 60) {
+      var m = Math.floor(seconds / 60);
+      var s = seconds % 60;
+      return m + 'm ' + s + 's';
+    }
+    return seconds + 's';
+  }
+
+  function clampCycleSeconds(seconds) {
+    seconds = parseInt(seconds, 10);
+    if (isNaN(seconds)) seconds = 60;
+    if (seconds < 10) seconds = 10;
+    if (seconds > 300) seconds = 300;
+    // snap to 5s steps
+    seconds = Math.round(seconds / 5) * 5;
+    return seconds;
+  }
+
+  function updateCycleSliderLabel() {
+    if (!el.cycleSecondsLabel) return;
+    el.cycleSecondsLabel.textContent = formatCycleLabel(el.cycleSeconds.value);
+  }
+
   function renderConfigure() {
     var list = S.getDashboards();
     var settings = S.getSettings();
     var defId = S.getState().defaultId;
+    var seconds = clampCycleSeconds(settings.cycleSeconds);
 
     el.dashCount.textContent = list.length ? '(' + list.length + ')' : '';
     el.cycleToggle.classList.toggle('on', !!settings.cycleEnabled);
     el.cycleToggle.setAttribute('aria-pressed', settings.cycleEnabled ? 'true' : 'false');
-    el.cycleSeconds.value = String(settings.cycleSeconds);
+    el.cycleSeconds.value = String(seconds);
+    updateCycleSliderLabel();
     el.hintsToggle.classList.toggle('on', settings.showHints !== false);
     el.awakeToggle.classList.toggle('on', settings.keepAwake !== false);
 
     if (!list.length) {
       el.dashList.innerHTML =
         '<div class="empty-state">' +
-        '<div class="empty-icon">＋</div>' +
+        '<div class="empty-icon">' + ICONS.plus + '</div>' +
         '<h3>No dashboards yet</h3>' +
         '<p>Add Node-RED, Grafana, Influx, Home Assistant or any HTTP dashboard URL.</p>' +
-        '<button type="button" class="btn btn-primary" id="btn-empty-add">Add URL</button>' +
+        '<button type="button" class="btn btn-primary" id="btn-empty-add">' + ICONS.plus + ' Add URL</button>' +
         '</div>';
       return;
     }
@@ -327,20 +385,23 @@
         '</div><div class="dash-url">' + escapeHtml(d.url) + '</div></div>' +
         '<div class="dash-actions">' +
         '<button type="button" class="btn-icon star' + (isDef ? ' active' : '') +
-        '" data-action="default" data-id="' + escapeHtml(d.id) + '" title="Set default" aria-label="Set default">★</button>' +
+        '" data-action="default" data-id="' + escapeHtml(d.id) + '" title="Set default" aria-label="Set default">' +
+        ICONS.star + '</button>' +
         '<button type="button" class="btn-icon" data-action="open" data-id="' + escapeHtml(d.id) +
-        '" title="Open" aria-label="Open">▶</button>' +
+        '" title="Open" aria-label="Open">' + ICONS.play + '</button>' +
         '<button type="button" class="btn-icon" data-action="edit" data-id="' + escapeHtml(d.id) +
-        '" title="Edit" aria-label="Edit">✎</button>' +
+        '" title="Edit" aria-label="Edit">' + ICONS.edit + '</button>' +
         '<button type="button" class="btn-icon danger" data-action="delete" data-id="' + escapeHtml(d.id) +
-        '" title="Delete" aria-label="Delete">✕</button>' +
+        '" title="Delete" aria-label="Delete">' + ICONS.close + '</button>' +
         '</div></div>';
     });
     el.dashList.innerHTML = html;
   }
 
   function saveCycleSettingsFromUI() {
-    var seconds = parseInt(el.cycleSeconds.value, 10);
+    var seconds = clampCycleSeconds(el.cycleSeconds.value);
+    el.cycleSeconds.value = String(seconds);
+    updateCycleSliderLabel();
     S.updateSettings({
       cycleEnabled: el.cycleToggle.classList.contains('on'),
       cycleSeconds: seconds,
@@ -429,18 +490,151 @@
   // ---------- Confirm ----------
   var confirmCallback = null;
 
-  function openConfirm(message, onYes) {
+  function openConfirm(message, onYes, opts) {
+    opts = opts || {};
     state.modalOpen = true;
     confirmCallback = onYes;
+    if (el.confirmTitle) el.confirmTitle.textContent = opts.title || 'Confirm';
     el.confirmText.textContent = message;
+    if (el.confirmYes) {
+      el.confirmYes.textContent = opts.yesLabel || 'Delete';
+      el.confirmYes.classList.toggle('btn-danger', opts.danger !== false);
+      el.confirmYes.classList.toggle('btn-primary', opts.danger === false);
+    }
     el.confirmModal.classList.add('open');
-    setTimeout(function () { F.focusPreferred(el.confirmModal, '#btn-confirm-cancel'); }, 40);
+    setTimeout(function () {
+      F.focusPreferred(el.confirmModal, opts.focusYes ? '#btn-confirm-yes' : '#btn-confirm-cancel');
+    }, 40);
   }
 
   function closeConfirm() {
     el.confirmModal.classList.remove('open');
     confirmCallback = null;
-    if (!el.modal.classList.contains('open')) state.modalOpen = false;
+    if (!el.modal.classList.contains('open') && !(el.transferModal && el.transferModal.classList.contains('open'))) {
+      state.modalOpen = false;
+    }
+  }
+
+  // ---------- Exit app (webOS home) ----------
+  function exitApp() {
+    try {
+      if (window.webOS && typeof webOS.platformBack === 'function') {
+        webOS.platformBack();
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (window.close) window.close();
+    } catch (e2) {}
+    toast('Press Home on the remote to leave the app', 3500);
+  }
+
+  function askExitApp() {
+    openConfirm('Exit IOT Dashboard and return to the TV home screen?', function () {
+      closeConfirm();
+      exitApp();
+    }, {
+      title: 'Exit app',
+      yesLabel: 'Exit',
+      danger: true,
+      focusYes: false
+    });
+  }
+
+  // ---------- Import / Export (TV-friendly text modal) ----------
+  var transferMode = 'export'; // export | import
+
+  function openTransferModal(mode) {
+    transferMode = mode === 'import' ? 'import' : 'export';
+    state.modalOpen = true;
+    el.transferError.classList.remove('visible');
+    el.transferError.textContent = '';
+
+    if (transferMode === 'export') {
+      el.transferTitle.textContent = 'Export backup';
+      el.transferDesc.textContent =
+        'Copy this JSON and save it on your phone or PC. File download is not available on webOS TV.';
+      el.transferLabel.textContent = 'Backup JSON';
+      el.transferText.value = S.exportJson();
+      el.transferText.readOnly = true;
+      el.transferApply.classList.add('hidden');
+      el.transferCopy.classList.remove('hidden');
+      el.transferCopy.textContent = 'Copy';
+    } else {
+      el.transferTitle.textContent = 'Import backup';
+      el.transferDesc.textContent =
+        'Paste a previously exported JSON backup below, then choose Import. File pickers are not available on webOS TV.';
+      el.transferLabel.textContent = 'Paste JSON';
+      el.transferText.value = '';
+      el.transferText.readOnly = false;
+      el.transferApply.classList.remove('hidden');
+      el.transferCopy.classList.add('hidden');
+    }
+
+    el.transferModal.classList.add('open');
+    setTimeout(function () {
+      F.focusEl(el.transferText);
+      try {
+        el.transferText.focus();
+        el.transferText.select();
+      } catch (e) {}
+    }, 40);
+  }
+
+  function closeTransferModal() {
+    if (!el.transferModal || !el.transferModal.classList.contains('open')) return;
+    el.transferModal.classList.remove('open');
+    if (!el.modal.classList.contains('open') && !el.confirmModal.classList.contains('open')) {
+      state.modalOpen = false;
+    }
+    if (state.screen === 'configure') {
+      setTimeout(function () { F.focusPreferred(el.configure, '#btn-add-dashboard'); }, 30);
+    }
+  }
+
+  function copyTransferText() {
+    var text = el.transferText.value || '';
+    if (!text) {
+      toast('Nothing to copy');
+      return;
+    }
+    function ok() { toast('Copied — paste it somewhere safe'); }
+    function fail() {
+      try {
+        el.transferText.focus();
+        el.transferText.select();
+      } catch (e) {}
+      toast('Select-all is ready — use remote Copy if available', 3500);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok).catch(fail);
+        return;
+      }
+    } catch (e1) {}
+    try {
+      el.transferText.focus();
+      el.transferText.select();
+      var success = document.execCommand && document.execCommand('copy');
+      if (success) ok();
+      else fail();
+    } catch (e2) {
+      fail();
+    }
+  }
+
+  function applyTransferImport() {
+    el.transferError.classList.remove('visible');
+    try {
+      S.importJson(String(el.transferText.value || ''));
+      closeTransferModal();
+      renderConfigure();
+      toast('Backup restored');
+    } catch (e) {
+      el.transferError.textContent = e.message || 'Import failed — check the JSON';
+      el.transferError.classList.add('visible');
+      F.focusEl(el.transferText);
+    }
   }
 
   // ---------- Keep awake (best-effort webOS) ----------
@@ -484,37 +678,6 @@
     }
   }
 
-  // ---------- Import / Export ----------
-  function exportSettings() {
-    var data = S.exportJson();
-    var blob = new Blob([data], { type: 'application/json' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'iot-dashboard-backup.json';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 500);
-    toast('Backup downloaded');
-  }
-
-  function importSettingsFile(file) {
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        S.importJson(String(reader.result || ''));
-        renderConfigure();
-        toast('Backup restored');
-      } catch (e) {
-        toast(e.message || 'Import failed');
-      }
-    };
-    reader.readAsText(file);
-  }
-
   // ---------- Events ----------
   function onKeyDown(e) {
     var key = e.key;
@@ -543,15 +706,46 @@
       }
     }
 
+    // Enter / OK — while viewing with no chrome open, open the menu
+    // (cross-origin iframes swallow keys once focused; keep focus on app chrome)
+    if (!typing && (key === 'Enter' || key === ' ' || e.keyCode === 13 || e.keyCode === 32)) {
+      if (
+        state.screen === 'viewer' &&
+        !state.overlayOpen &&
+        !state.modalOpen &&
+        !el.error.classList.contains('visible') &&
+        (!document.activeElement ||
+          document.activeElement === document.body ||
+          document.activeElement === el.frame ||
+          document.activeElement === document.documentElement)
+      ) {
+        e.preventDefault();
+        openOverlay();
+        return;
+      }
+    }
+
     if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
       var root = null;
       if (el.confirmModal.classList.contains('open')) root = el.confirmModal;
+      else if (el.transferModal && el.transferModal.classList.contains('open')) root = el.transferModal;
       else if (el.modal.classList.contains('open')) root = el.modal;
       else if (state.overlayOpen) root = el.overlay;
       else if (state.screen === 'configure') root = el.configure;
       else if (el.error.classList.contains('visible')) root = el.error;
       else if (state.screen === 'viewer' && !state.overlayOpen) {
-        // While viewing, arrows are for the iframe content — open menu on ArrowUp long? skip
+        // Cross-origin iframes cannot take our D-pad; Magic Remote pointer still works inside them.
+        // Left/Right: previous/next dashboard. Up/Down: open the menu.
+        e.preventDefault();
+        if (key === 'ArrowLeft') {
+          cycleBy(-1);
+          return;
+        }
+        if (key === 'ArrowRight') {
+          cycleBy(1);
+          return;
+        }
+        openOverlay();
         return;
       }
       if (root && F.handleArrowKey(key, root)) {
@@ -567,6 +761,11 @@
       closeConfirm();
       return;
     }
+    if (el.transferModal && el.transferModal.classList.contains('open')) {
+      e.preventDefault();
+      closeTransferModal();
+      return;
+    }
     if (el.modal.classList.contains('open')) {
       e.preventDefault();
       closeModal();
@@ -578,27 +777,23 @@
       return;
     }
     if (state.screen === 'configure') {
+      e.preventDefault();
       var list = S.getDashboards();
+      // Prefer returning to the viewer when dashboards exist (hierarchical Back).
+      // On an empty setup, or from Exit controls, ask to leave the app.
       if (list.length) {
-        e.preventDefault();
-        openDashboard(state.currentId || S.getDefaultDashboard().id);
+        var target = state.currentId
+          ? S.getDashboard(state.currentId)
+          : S.getDefaultDashboard();
+        openDashboard(target ? target.id : list[0].id, { silent: true });
         return;
       }
-      // empty — allow exit
-      if (window.close) {
-        // webOS: maybe webOS.platformBack
-      }
-      try {
-        if (window.webOS && webOS.platformBack) {
-          e.preventDefault();
-          webOS.platformBack();
-          return;
-        }
-      } catch (err) {}
+      askExitApp();
       return;
     }
     if (state.screen === 'viewer') {
       e.preventDefault();
+      // First Back opens menu; menu has Configure + Exit app
       openOverlay();
     }
   }
@@ -613,12 +808,10 @@
       if (!d) { toast('Add a dashboard first'); return; }
       openDashboard(d.id);
     });
-    $('#btn-export').addEventListener('click', exportSettings);
-    $('#btn-import').addEventListener('click', function () { el.importInput.click(); });
-    el.importInput.addEventListener('change', function () {
-      importSettingsFile(el.importInput.files && el.importInput.files[0]);
-      el.importInput.value = '';
-    });
+    $('#btn-export').addEventListener('click', function () { openTransferModal('export'); });
+    $('#btn-import').addEventListener('click', function () { openTransferModal('import'); });
+    var exitBtn = $('#btn-exit-app');
+    if (exitBtn) exitBtn.addEventListener('click', askExitApp);
 
     el.dashList.addEventListener('click', function (e) {
       var btn = e.target.closest('[data-action]');
@@ -642,7 +835,7 @@
           closeConfirm();
           renderConfigure();
           toast('Removed');
-        });
+        }, { title: 'Delete dashboard', yesLabel: 'Delete', danger: true });
       }
     });
 
@@ -660,9 +853,12 @@
       el.awakeToggle.classList.toggle('on');
       saveCycleSettingsFromUI();
     });
+    el.cycleSeconds.addEventListener('input', function () {
+      updateCycleSliderLabel();
+    });
     el.cycleSeconds.addEventListener('change', function () {
       saveCycleSettingsFromUI();
-      toast('Interval saved');
+      toast('Interval: ' + formatCycleLabel(el.cycleSeconds.value));
     });
 
     // Modal
@@ -676,9 +872,6 @@
       if (!opt) return;
       state.selectedType = opt.getAttribute('data-type');
       renderTypeGrid();
-      if (!el.inputName.value.trim()) {
-        // soft placeholder only
-      }
     });
     el.inputUrl.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); submitDashboardModal(); }
@@ -694,6 +887,14 @@
     });
     el.confirmModal.addEventListener('click', function (e) {
       if (e.target === el.confirmModal) closeConfirm();
+    });
+
+    // Transfer (import/export)
+    $('#btn-transfer-cancel').addEventListener('click', closeTransferModal);
+    el.transferCopy.addEventListener('click', copyTransferText);
+    el.transferApply.addEventListener('click', applyTransferImport);
+    el.transferModal.addEventListener('click', function (e) {
+      if (e.target === el.transferModal) closeTransferModal();
     });
 
     // Overlay
@@ -715,6 +916,8 @@
       reloadCurrent();
     });
     $('#btn-menu-close').addEventListener('click', function () { closeOverlay(); });
+    var menuExit = $('#btn-menu-exit');
+    if (menuExit) menuExit.addEventListener('click', askExitApp);
 
     // Error actions
     $('#btn-error-retry').addEventListener('click', reloadCurrent);
@@ -729,6 +932,12 @@
         openOverlay();
       });
     }
+
+    // Keep D-pad keys on the app shell: blur iframe if it steals focus
+    el.frame.addEventListener('focus', function () {
+      try { document.body.focus(); } catch (err) {}
+    });
+    el.frame.setAttribute('tabindex', '-1');
   }
 
   function boot() {
